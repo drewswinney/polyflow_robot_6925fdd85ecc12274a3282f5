@@ -1,0 +1,57 @@
+logging { level = "info" }
+
+loki.relabel "journal_to_service" {
+  rule {
+    action        = "replace"
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "service"         # or "system" if you prefer
+    regex         = "^(.*)\\.service$"
+    replacement   = "$1"
+  }
+
+  rule {
+    action        = "replace"
+    source_labels = ["__journal_syslog_identifier"]
+    target_label  = "service"
+    # regex defaults to (.*), replacement to $1, so this just copies
+  }
+}
+
+loki.source.journal "system" {
+  forward_to    = [loki.process.robot.receiver]
+
+  relabel_rules = loki.relabel.journal_to_service.rules
+
+  labels = {
+    job = "system-journal"
+  }
+}
+
+loki.process "robot" {
+  stage.static_labels {
+    values = {
+      robot_id = "6925fdd85ecc12274a3282f5"
+      host     = "6925fdd85ecc12274a3282f5.local"
+    }
+  }
+
+  stage.regex {
+    expression = `.*\[(?P<ros_exec>[^\]]+)\]\s+\[(?P<ros_level>[A-Z]+)\]\s+\[[^\]]+\]\s+\[(?P<ros_node>[^\]]+)\]`
+  }
+
+  stage.labels {
+    values = {
+      ros_exec  = "ros_exec"
+      ros_level = "ros_level"
+      ros_node  = "ros_node"
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
+  }
+}
